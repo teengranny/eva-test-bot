@@ -91,10 +91,16 @@ def health_check():
     return "OK", 200
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    print(f"📡 Запуск Flask на порту {port}")
-    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
+    # Render передает нужный порт в переменную окружения PORT. 
+    # Если её нет, берем 10000 (стандарт для Render).
+    port = int(os.environ.get("PORT", 10000))
+    print(f"📡 Flask запускается на порту {port}...")
+    try:
+        # Важно: host="0.0.0.0" позволяет внешнему миру видеть Flask
+        flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    except Exception as e:
+        print(f"❌ Ошибка веб-сервера: {e}")
+        
 # ------------------ ЗАПУСК ------------------
 if __name__ == "__main__":
     # Запускаем Flask в отдельном потоке
