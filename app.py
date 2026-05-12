@@ -92,34 +92,33 @@ flask_app = Flask(__name__)
 def health_check():
     return "OK", 200
 
-def run_flask():
-    # Render дает порт в переменную PORT
-    port = int(os.environ.get("PORT", 8080))
-    print(f"📡 Flask пытается запуститься на порту {port}...")
-    try:
-        # debug=False и use_reloader=False ОБЯЗАТЕЛЬНЫ для потоков!
-        flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-    except Exception as e:
-        print(f"❌ Ошибка Flask: {e}")
-
 # ------------------ ЗАПУСК ------------------
-async def main_async():
-    print("🚀 Запуск основного процесса (Бот + Модели)...")
-    # Здесь можно добавить логику запуска бота, если она в функции
+
+def run_flask():
+    """Запуск Flask на порту, который выдал Render"""
+    port = int(os.environ.get("PORT", 10000))
+    print(f"📡 Веб-сервер стартует на порту {port}...")
+    # debug=False критично для работы в потоках!
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+async def main_logic():
+    """Запуск тяжелых моделей и Telegram бота"""
+    print("🧠 Загрузка нейросети и базы данных...")
+    # Модели загрузятся здесь, не мешая веб-серверу
+    print("🚀 Ева выходит в онлайн!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    # 1. ЗАПУСКАЕМ ВЕБ-СЕРВЕР ПЕРВЫМ И СРАЗУ
-    t = threading.Thread(target=run_flask, daemon=True)
-    t.start()
-    print("✅ Поток Flask запущен. Ждем 2 секунды для прогрева порта...")
+    # 1. СНАЧАЛА ЗАПУСКАЕМ FLASK В ПОТОКЕ
+    # Он сразу откроет порт, и Render будет счастлив
+    threading.Thread(target=run_flask, daemon=True).start()
     
-    # Небольшая пауза, чтобы Flask успел занять порт до того, как нагрузим систему
+    # 2. ДАЕМ FLASK 1 СЕКУНДУ НА СТАРТ
     import time
-    time.sleep(2)
-
-    # 2. ЗАПУСКАЕМ БОТА
+    time.sleep(1)
+    
+    # 3. ЗАПУСКАЕМ ОСНОВНУЮ ЛОГИКУ БОТА
     try:
-        asyncio.run(main_async())
+        asyncio.run(main_logic())
     except (KeyboardInterrupt, SystemExit):
-        print("Бот остановлен")
+        logging.info("Бот остановлен")
