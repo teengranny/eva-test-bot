@@ -1,0 +1,6 @@
+aiogram
+groq
+supabase
+sentence-transformers
+python-dotenv
+flask
