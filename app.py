@@ -98,10 +98,17 @@ def run_flask():
 
 # ------------------ ЗАПУСК ------------------
 async def main():
-    threads = threading.Thread(target=run_flask, daemon=True)
-    threads.start()
-    print("✅ Flask сервер для healthcheck запущен в фоне.")
+    # Сначала запускаем Flask в отдельном потоке
+    threading.Thread(target=run_flask, daemon=True).start()
+    print("✅ Flask сервер запущен.")
+    
+    # Затем запускаем Telegram бота
+    print("🚀 Ева выходит на связь в Telegram...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Убеждаемся, что мы используем правильный цикл событий
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Бот остановлен")
