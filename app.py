@@ -64,7 +64,7 @@ async def start_command(message: types.Message):
 
 @dp.message()
 async def handle_question(message: types.Message):
-    answer = ask_eva(message.text, message.from_user.first_name)
+    answer = ask_eva(message.text)
     await message.answer(answer)
 
 # ------------------ FLASK ДЛЯ HEALTHCHECK ------------------
