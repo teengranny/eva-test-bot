@@ -29,12 +29,13 @@ try:
         FULL_CONTEXT = f.read()
     print(f"✅ Загружена база знаний из {DATA_FILE}")
 except FileNotFoundError:
-    print(f"❌ Файл {DATA_FILE} не найден.")
+    print(f"❌ Файл {DATA_FILE} не найден. Бот будет работать без контекста.")
     FULL_CONTEXT = ""
 
 # ------------------ ЛОГИКА ЕВЫ ------------------
-def ask_eva(question, user_name="Студент"):
-system_prompt = f"""
+def ask_eva(question):
+    # Исправлены отступы и обновлен промпт, чтобы избежать лишних "приветов"
+    system_prompt = f"""
 Ты — Ева, экспертный ассистент-куратор курса Python-разработчик в Нетологии.
 
 ТВОЙ СТИЛЬ:
@@ -60,10 +61,12 @@ system_prompt = f"""
 # ------------------ TELEGRAM ХЕНДЛЕРЫ ------------------
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
+    # Оставляем приветствие только здесь
     await message.answer(f"Привет, {message.from_user.first_name}! Я Ева, твой ИИ-куратор. Спрашивай что угодно о курсе!")
 
 @dp.message()
 async def handle_question(message: types.Message):
+    # Теперь вызываем без имени, чтобы бот не спамил приветствиями
     answer = ask_eva(message.text)
     await message.answer(answer)
 
@@ -76,6 +79,7 @@ def health_check():
     return "OK", 200
 
 def run_flask():
+    # Настройка порта для Render
     port = int(os.environ.get("PORT", 10000))
     print(f"📡 Flask запускается на порту {port}...")
     try:
@@ -85,6 +89,7 @@ def run_flask():
 
 # ------------------ ЗАПУСК ------------------
 if __name__ == "__main__":
+    # Запускаем Flask в отдельном потоке, чтобы Render видел порт
     threading.Thread(target=run_flask, daemon=True).start()
     import time
     time.sleep(1)
