@@ -87,8 +87,8 @@ async def handle_question(message: types.Message):
 # ------------------ FLASK ДЛЯ HEALTHCHECK ------------------
 flask_app = Flask(__name__)
 
-@flask_app.route('/')
-@flask_app.route('/health')
+@flask_app.route('/') # Путь по умолчанию
+@flask_app.route('/health') # Путь /health
 def health_check():
     return "OK", 200
 
