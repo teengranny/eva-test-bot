@@ -107,8 +107,13 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    # Убеждаемся, что мы используем правильный цикл событий
+    # 1. ЗАПУСКАЕМ FLASK СРАЗУ
+    # Это даст Render сигнал, что всё ок
+    threading.Thread(target=run_flask, daemon=True).start()
+    print("✅ Flask запущен, порт открыт для Render")
+
+    # 2. А ТЕПЕРЬ ЗАПУСКАЕМ ВСЁ ОСТАЛЬНОЕ
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logging.info("Бот остановлен")
+        print("Бот остановлен")
