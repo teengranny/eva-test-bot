@@ -93,27 +93,33 @@ def health_check():
     return "OK", 200
 
 def run_flask():
-    port = int(os.environ.get("PORT", 10000)) # Render любит 10000 по умолчанию
-    flask_app.run(host="0.0.0.0", port=port)
+    # Render дает порт в переменную PORT
+    port = int(os.environ.get("PORT", 8080))
+    print(f"📡 Flask пытается запуститься на порту {port}...")
+    try:
+        # debug=False и use_reloader=False ОБЯЗАТЕЛЬНЫ для потоков!
+        flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    except Exception as e:
+        print(f"❌ Ошибка Flask: {e}")
 
 # ------------------ ЗАПУСК ------------------
-async def main():
-    # Сначала запускаем Flask в отдельном потоке
-    threading.Thread(target=run_flask, daemon=True).start()
-    print("✅ Flask сервер запущен.")
-    
-    # Затем запускаем Telegram бота
-    print("🚀 Ева выходит на связь в Telegram...")
+async def main_async():
+    print("🚀 Запуск основного процесса (Бот + Модели)...")
+    # Здесь можно добавить логику запуска бота, если она в функции
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    # 1. ЗАПУСКАЕМ FLASK СРАЗУ
-    # Это даст Render сигнал, что всё ок
-    threading.Thread(target=run_flask, daemon=True).start()
-    print("✅ Flask запущен, порт открыт для Render")
+    # 1. ЗАПУСКАЕМ ВЕБ-СЕРВЕР ПЕРВЫМ И СРАЗУ
+    t = threading.Thread(target=run_flask, daemon=True)
+    t.start()
+    print("✅ Поток Flask запущен. Ждем 2 секунды для прогрева порта...")
+    
+    # Небольшая пауза, чтобы Flask успел занять порт до того, как нагрузим систему
+    import time
+    time.sleep(2)
 
-    # 2. А ТЕПЕРЬ ЗАПУСКАЕМ ВСЁ ОСТАЛЬНОЕ
+    # 2. ЗАПУСКАЕМ БОТА
     try:
-        asyncio.run(main())
+        asyncio.run(main_async())
     except (KeyboardInterrupt, SystemExit):
         print("Бот остановлен")
