@@ -1,4 +1,4 @@
-aiogram
-groq
-python-dotenv
-flask
+aiogram==3.10.0
+Flask==3.0.0
+groq==0.9.0
+python-dotenv==1.0.0
