@@ -56,7 +56,14 @@ def ask_eva(question):
         temperature=0.6,  # Еще чуть выше, чтобы была "живее"
         model="llama-3.3-70b-versatile"
     )
-    return chat_completion.choices[0].message.content
+    content = chat_completion.choices[0].message.content
+    
+    # Жесткий программный фильтр лишних слов
+    bad_words = ["Привет!", "Приветствую!", "Рада помочь с выбором курса", "Рада помочь!", "Здравствуйте!"]
+    for word in bad_words:
+        content = content.replace(word, "")
+    
+    return content.strip()
 
 # ------------------ TELEGRAM ------------------
 @dp.message(Command("start"))
