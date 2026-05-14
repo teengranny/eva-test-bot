@@ -2,6 +2,7 @@ import os
 import asyncio
 import threading
 import logging
+import httpx  # Добавили для фикса прокси
 from flask import Flask
 from dotenv import load_dotenv
 from groq import Groq
@@ -17,9 +18,15 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+# ФИКС ПРОКСИ (чтобы не было ошибки из image_873752.png)
+http_client = httpx.Client()
+groq_client = Groq(api_key=GROQ_API_KEY, http_client=http_client)
+
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
+
+# ПАМЯТЬ БОТА: храним историю {user_id: [messages]}
+user_history = {}
 
 # Загрузка контекста
 try:
@@ -37,8 +44,14 @@ main_kb = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-def ask_eva(question: str, user_name: str = "Студент") -> str:
-    """Генерация ответа Евы с контекстом из data.txt"""
+def ask_eva(user_id: int, question: str, user_name: str = "Студент") -> str:
+    """Генерация ответа Евы с контекстом и ПАМЯТЬЮ"""
+    
+    # Инициализируем историю для нового пользователя
+    if user_id not in user_history:
+        user_history[user_id] = []
+
+    # ТВОЙ ПРОМПТ (без изменений)
     system_prompt = f"""
 Ты — Ева, эксперт курса Python-разработчик. Твоя задача — продавать смыслы курса, а не просто отвечать.
 
@@ -65,23 +78,32 @@ def ask_eva(question: str, user_name: str = "Студент") -> str:
 КОНТЕКСТ ДЛЯ ОТВЕТА:
 {FULL_CONTEXT}
 """
+    # Собираем сообщения для Groq (System + История последних 6 сообщений + Вопрос)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(user_history[user_id][-6:])
+    messages.append({"role": "user", "content": question})
+
     try:
-        # Не забудь про фикс с http_client, который мы обсуждали для ошибки в image_873752.png
         chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
-            temperature=0.2, # Снижаем до 0.2, чтобы было еще меньше "творчества" и больше фактов
+            messages=messages,
+            temperature=0.2,
             model="llama-3.3-70b-versatile"
         )
-        return chat_completion.choices[0].message.content.strip()
+        answer = chat_completion.choices[0].message.content.strip()
+        
+        # Сохраняем в историю
+        user_history[user_id].append({"role": "user", "content": question})
+        user_history[user_id].append({"role": "assistant", "content": answer})
+        
+        return answer
     except Exception as e:
         logger.error(f"Ошибка Groq: {e}")
         return "Сейчас я обновляю данные по курсу. Спросите, пожалуйста, через минуту."
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
+    # Очищаем историю при рестарте
+    user_history[message.from_user.id] = []
     await message.answer(
         "Привет! Я Ева. Жми на кнопки или задавай любой вопрос про курс Python-разработчик.",
         reply_markup=main_kb
@@ -89,26 +111,32 @@ async def start_command(message: types.Message):
 
 @dp.message()
 async def handle_message(message: types.Message):
+    user_id = message.from_user.id
     user_name = message.from_user.first_name
     text = message.text
     
     if text == "🚀 О программе":
         msg = "Курс включает уровни: Junior (основы), Middle (Django, API) и Advanced (архитектура). Хотите подробнее?"
+        # Добавляем в историю нажатие кнопки, чтобы Ева помнила контекст
+        if user_id not in user_history: user_history[user_id] = []
+        user_history[user_id].append({"role": "assistant", "content": msg})
     elif text == "💳 Стоимость и скидки":
         msg = "Полная стоимость — 120 000 руб. При оплате сразу — 108 000 руб. Можно вернуть 13% налогового вычета!"
+        if user_id not in user_history: user_history[user_id] = []
+        user_history[user_id].append({"role": "assistant", "content": msg})
     elif text == "📅 Когда старт?":
         msg = "Ближайший поток формируется. Оставьте заявку, и менеджер свяжется с вами для уточнения даты!"
+        if user_id not in user_history: user_history[user_id] = []
+        user_history[user_id].append({"role": "assistant", "content": msg})
     else:
-        msg = ask_eva(text, user_name)
+        msg = ask_eva(user_id, text, user_name)
     
     await message.answer(msg)
 
 # Flask для healthcheck
 flask_app = Flask(__name__)
-
 @flask_app.route('/health')
-def health():
-    return "OK", 200
+def health(): return "OK", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
