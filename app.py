@@ -51,21 +51,23 @@ def ask_eva(question: str, user_name: str = "Студент") -> str:
 - Если вопрос не про курс — вежливо ответь, что ты консультируешь только по Python-разработке.
 
 ВОТ ИНФОРМАЦИЯ О КУРСЕ (отвечай строго на её основе):
+КОНТЕКСТ ДЛЯ ОТВЕТА:
 {FULL_CONTEXT}
 """
     try:
+        # Не забудь про фикс с http_client, который мы обсуждали для ошибки в image_873752.png
         chat_completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question}
             ],
-            temperature=0.3,
+            temperature=0.2, # Снижаем до 0.2, чтобы было еще меньше "творчества" и больше фактов
             model="llama-3.3-70b-versatile"
         )
         return chat_completion.choices[0].message.content.strip()
     except Exception as e:
         logger.error(f"Ошибка Groq: {e}")
-        return "Технические неполадки, попробуйте позже."
+        return "Сейчас я обновляю данные по курсу. Спросите, пожалуйста, через минуту."
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
