@@ -7,38 +7,38 @@ from dotenv import load_dotenv
 from groq import Groq
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# Настройка логирования
+# Логирование
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# ------------------ НАСТРОЙКИ ------------------
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-if not all([TELEGRAM_BOT_TOKEN, GROQ_API_KEY]):
-    logger.error("❌ Критическая ошибка: не заданы ключи")
-    exit(1)
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-# ------------------ ДАННЫЕ ------------------
-DATA_FILE = "data.txt"
+# Загрузка контекста
 try:
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
+    with open("data.txt", "r", encoding="utf-8") as f:
         FULL_CONTEXT = f.read()
-    logger.info(f"✅ Загружен файл {DATA_FILE}, длина {len(FULL_CONTEXT)} символов")
 except FileNotFoundError:
-    logger.warning(f"⚠️ Файл {DATA_FILE} не найден, использую дефолтный контекст")
-    FULL_CONTEXT = "Информация о курсе Python-разработчик в Нетологии: стоимость 120к, скидка 10%, рассрочка на 24 мес."
+    FULL_CONTEXT = "Информации о курсе Python-разработчик в Нетологии: 120к, скидка 10%."
 
-# ------------------ ЛОГИКА ЕВЫ ------------------
-def ask_eva(question: str, user_name: str = "Студент") -> str:
-    # Улучшенный системный промпт (без запрещённых фраз в тексте, позитивные инструкции)
+# Клавиатура от Кости
+main_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🚀 О программе"), KeyboardButton(text="💳 Стоимость и скидки")],
+        [KeyboardButton(text="📅 Когда старт?")]
+    ],
+    resize_keyboard=True
+)
+
+def ask_eva(question: str) -> str:
     system_prompt = f"""
 Ты — Ева, эксперт и ассистент курса Python-разработчик в Нетологии. Ты общаешься с будущим студентом по имени {user_name}.
 
@@ -48,60 +48,49 @@ def ask_eva(question: str, user_name: str = "Студент") -> str:
 - Если тебя критикуют, ответь: "Принято, исправляюсь. Что именно рассказать про курс?"
 - Используй не более одного смайлика за ответ.
 - Не повторяй приветствия в каждом сообщении. Если диалог уже идёт, не здоровайся заново.
-
-ОТВЕТЫ ОСНОВЫВАЙ НА ЭТОЙ ИНФОРМАЦИИ:
-{FULL_CONTEXT}
+- Если вопрос не про курс — вежливо ответь, что ты консультируешь только по Python-разработке.
 """
-
     try:
         chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
-            temperature=0.6,
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": question}],
+            temperature=0.3,
             model="llama-3.3-70b-versatile"
         )
-        answer = chat_completion.choices[0].message.content
-        # Небольшая очистка: убираем возможные повторяющиеся приветствия, которые модель иногда выдаёт
-        if answer.startswith(("Привет!", "Здравствуйте!", "Добрый день!", "Рада помочь")):
-            # убираем первую фразу до точки или запятой, но проще заменить на пустоту
-            parts = answer.split(",", 1)
-            if len(parts) > 1:
-                answer = parts[1].lstrip()
-        return answer.strip()
+        return chat_completion.choices[0].message.content.strip()
     except Exception as e:
-        logger.error(f"Ошибка при вызове Groq: {e}")
-        return "Извините, сейчас технические трудности. Попробуйте позже."
+        logger.error(f"Ошибка Groq: {e}")
+        return "Технические неполадки, попробуйте позже."
 
-# ------------------ TELEGRAM ХЕНДЛЕРЫ ------------------
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    user_name = message.from_user.first_name or "Студент"
-    await message.answer(f"Привет, {user_name}! Я Ева — твой помощник по курсу Python-разработчик в Нетологии. Что хочешь узнать?")
+    await message.answer(
+        "Привет! Я Ева. Жми на кнопки или задавай любой вопрос про курс Python-разработчик.",
+        reply_markup=main_kb
+    )
 
 @dp.message()
-async def handle_question(message: types.Message):
-    user_name = message.from_user.first_name or "Студент"
-    answer = ask_eva(message.text, user_name)
-    await message.answer(answer)
+async def handle_message(message: types.Message):
+    # Обработка кнопок текстом
+    text = message.text
+    if text == "🚀 О программе":
+        msg = "Курс включает уровни: Junior (основы), Middle (Django, API) и Advanced (архитектура). Хотите подробнее?"
+    elif text == "💳 Стоимость и скидки":
+        msg = "Полная стоимость — 120 000 руб. При оплате сразу — 108 000 руб. Можно вернуть 13% налогового вычета!"
+    elif text == "📅 Когда старт?":
+        msg = "Ближайший поток формируется. Оставьте заявку, и менеджер свяжется с вами для уточнения даты!"
+    else:
+        msg = ask_eva(text)
+    
+    await message.answer(msg)
 
-# ------------------ FLASK ДЛЯ HEALTHCHECK ------------------
+# Flask для Render
 flask_app = Flask(__name__)
-
-@flask_app.route('/')
 @flask_app.route('/health')
-def health_check():
-    return "OK", 200
+def health(): return "OK", 200
 
 def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
-# ------------------ ЗАПУСК ------------------
 if __name__ == "__main__":
-    # Запускаем Flask в отдельном потоке
     threading.Thread(target=run_flask, daemon=True).start()
-    logger.info("🚀 Ева запущена и готова к общению!")
-    # Запускаем поллинг бота
     asyncio.run(dp.start_polling(bot))
