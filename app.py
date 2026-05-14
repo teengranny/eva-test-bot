@@ -9,7 +9,6 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# Логирование
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -27,9 +26,9 @@ try:
     with open("data.txt", "r", encoding="utf-8") as f:
         FULL_CONTEXT = f.read()
 except FileNotFoundError:
-    FULL_CONTEXT = "Информации о курсе Python-разработчик в Нетологии: 120к, скидка 10%."
+    FULL_CONTEXT = "Курс Python-разработчик в Нетологии: полная стоимость 120 000 руб. При единовременной оплате скидка 10% – 108 000 руб. Рассрочка 24 месяца по 5 000 руб./мес. Программа: основы Python, базы данных, веб-разработка на Django, профессиональные навыки."
 
-# Клавиатура от Кости
+# Клавиатура
 main_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🚀 О программе"), KeyboardButton(text="💳 Стоимость и скидки")],
@@ -38,7 +37,8 @@ main_kb = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-def ask_eva(question: str) -> str:
+def ask_eva(question: str, user_name: str = "Студент") -> str:
+    """Генерация ответа Евы с контекстом из data.txt"""
     system_prompt = f"""
 Ты — Ева, эксперт и ассистент курса Python-разработчик в Нетологии. Ты общаешься с будущим студентом по имени {user_name}.
 
@@ -49,10 +49,16 @@ def ask_eva(question: str) -> str:
 - Используй не более одного смайлика за ответ.
 - Не повторяй приветствия в каждом сообщении. Если диалог уже идёт, не здоровайся заново.
 - Если вопрос не про курс — вежливо ответь, что ты консультируешь только по Python-разработке.
+
+ВОТ ИНФОРМАЦИЯ О КУРСЕ (отвечай строго на её основе):
+{FULL_CONTEXT}
 """
     try:
         chat_completion = groq_client.chat.completions.create(
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": question}],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question}
+            ],
             temperature=0.3,
             model="llama-3.3-70b-versatile"
         )
@@ -70,8 +76,9 @@ async def start_command(message: types.Message):
 
 @dp.message()
 async def handle_message(message: types.Message):
-    # Обработка кнопок текстом
+    user_name = message.from_user.first_name
     text = message.text
+    
     if text == "🚀 О программе":
         msg = "Курс включает уровни: Junior (основы), Middle (Django, API) и Advanced (архитектура). Хотите подробнее?"
     elif text == "💳 Стоимость и скидки":
@@ -79,17 +86,20 @@ async def handle_message(message: types.Message):
     elif text == "📅 Когда старт?":
         msg = "Ближайший поток формируется. Оставьте заявку, и менеджер свяжется с вами для уточнения даты!"
     else:
-        msg = ask_eva(text)
+        msg = ask_eva(text, user_name)
     
     await message.answer(msg)
 
-# Flask для Render
+# Flask для healthcheck
 flask_app = Flask(__name__)
+
 @flask_app.route('/health')
-def health(): return "OK", 200
+def health():
+    return "OK", 200
 
 def run_flask():
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
