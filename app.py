@@ -15,16 +15,16 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Инициализация Groq с фиксом прокси
-http_client = httpx.Client()
+# Инициализация Groq с таймаутом
+http_client = httpx.Client(timeout=30.0)
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"), http_client=http_client)
 bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
 dp = Dispatcher()
 
-# ПАМЯТЬ БОТА
+# Память бота (история диалогов)
 user_history = {}
 
-# АКТУАЛЬНЫЙ КОНТЕКСТ
+# Актуальный контекст (данные Нетологии)
 FULL_CONTEXT = """
 1. КУРС PYTHON-РАЗРАБОТЧИК: 
 - Стоимость: 87 500 руб. (скидка 55%). Рассрочка: от 4 052 руб./мес.
@@ -59,11 +59,7 @@ def ask_eva(user_id: int, question: str) -> str:
     if user_id not in user_history:
         user_history[user_id] = []
 
-    # ОБНОВЛЕННЫЙ ПРОМПТ: Добавили эмодзи и реакцию на флирт/комплименты
     system_prompt = f"""
-Ты — Ева, эксперт школы Нетология. Ты умная, уверенная и слегка ироничная. 
-
-system_prompt = f"""
 Ты — Ева, эксперт школы Нетология. Ты продаёшь ценность курсов и доверие к школе. 
 Ты умная, уверенная и располагающая к себе.
 
@@ -82,42 +78,56 @@ system_prompt = f"""
 КОНТЕКСТ ДЛЯ ОТВЕТА:
 {FULL_CONTEXT}
 """
-КОНТЕКСТ ДЛЯ ОТВЕТОВ:
-{FULL_CONTEXT}
-"""
+
     messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(user_history[user_id][-6:])
+    messages.extend(user_history[user_id][-6:])  # последние 6 сообщений из истории
     messages.append({"role": "user", "content": question})
 
     try:
         chat_completion = groq_client.chat.completions.create(
-            messages=messages, temperature=0.4, model="llama-3.3-70b-versatile"
+            messages=messages,
+            temperature=0.4,
+            model="llama-3.3-70b-versatile"
         )
         answer = chat_completion.choices[0].message.content.strip()
         user_history[user_id].append({"role": "user", "content": question})
         user_history[user_id].append({"role": "assistant", "content": answer})
+        # Ограничиваем историю 20 сообщениями (10 диалогов)
+        if len(user_history[user_id]) > 20:
+            user_history[user_id] = user_history[user_id][-20:]
         return answer
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        return "Секунду, настраиваю связь... ✨"
+        logger.error(f"Ошибка Groq: {e}")
+        return "Секунду, настраиваю связь... ✨ Повторите вопрос, пожалуйста."
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    user_history[message.from_user.id] = []
-    await message.answer("Привет! Я Ева. Готова рассказать про наши курсы или саму школу. С чего начнем? ✨", reply_markup=main_kb)
+    user_id = message.from_user.id
+    if user_id not in user_history:
+        user_history[user_id] = []
+    await message.answer(
+        "Привет! Я Ева. Готова рассказать про наши курсы или саму школу. С чего начнем? ✨",
+        reply_markup=main_kb
+    )
 
 @dp.message()
 async def handle_message(message: types.Message):
-    msg = ask_eva(message.from_user.id, message.text)
-    await message.answer(msg, parse_mode="Markdown")
+    user_id = message.from_user.id
+    answer = ask_eva(user_id, message.text)
+    await message.answer(answer, parse_mode="Markdown")
 
+# Flask для healthcheck (чтобы Render не убивал процесс)
 flask_app = Flask(__name__)
+
 @flask_app.route('/health')
-def health(): return "OK", 200
+def health():
+    return "OK", 200
 
 def run_flask():
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
+    logger.info("Бот Ева запущен и работает...")
     asyncio.run(dp.start_polling(bot))
