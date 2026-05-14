@@ -2,7 +2,7 @@ import os
 import asyncio
 import threading
 import logging
-import httpx  # Добавили для фикса прокси
+import httpx
 from flask import Flask
 from dotenv import load_dotenv
 from groq import Groq
@@ -15,43 +15,53 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-# ФИКС ПРОКСИ (чтобы не было ошибки из image_873752.png)
+# Инициализация Groq с фиксом прокси
 http_client = httpx.Client()
-groq_client = Groq(api_key=GROQ_API_KEY, http_client=http_client)
-
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"), http_client=http_client)
+bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
 dp = Dispatcher()
 
-# ПАМЯТЬ БОТА: храним историю {user_id: [messages]}
+# ПАМЯТЬ БОТА
 user_history = {}
 
-# Загрузка контекста
-try:
-    with open("data.txt", "r", encoding="utf-8") as f:
-        FULL_CONTEXT = f.read()
-except FileNotFoundError:
-    FULL_CONTEXT = "Курс Python-разработчик в Нетологии: полная стоимость 120 000 руб. При единовременной оплате скидка 10% – 108 000 руб. Рассрочка 24 месяца по 5 000 руб./мес. Программа: основы Python, базы данных, веб-разработка на Django, профессиональные навыки."
+# АКТУАЛЬНЫЙ КОНТЕКСТ (Данные Нетологии на май 2026)
+FULL_CONTEXT = """
+1. КУРС PYTHON-РАЗРАБОТЧИК: 
+- Стоимость: 87 500 руб. (полная цена 194 515 руб, скидка 55%).
+- Рассрочка: от 4 052 руб./мес.
+- Срок обучения: 12 месяцев.
+- Программа: Python, Django, FastAPI, базы данных.
 
-# Клавиатура
+2. КУРС ГРАФИЧЕСКИЙ ДИЗАЙНЕР: 
+- Стоимость: 105 400 руб. (полная цена 201 754 руб, скидка 48%).
+- Рассрочка: от 3 082 руб./мес.
+- Срок обучения: 8 месяцев.
+- Программа: Дизайн и коммуникации, Photoshop, Illustrator.
+
+3. КУРС ТЕСТИРОВЩИК (QA): 
+- Стоимость: 54 400 руб. (полная цена 109 830 руб, скидка 50%).
+- Рассрочка: от 2 516 руб./мес.
+- Срок обучения: 7 месяцев.
+- Программа: Ручное и автоматизированное тестирование.
+
+ОБЩЕЕ: Помощь в трудоустройстве, диплом о переподготовке, налоговый вычет 13%.
+"""
+
+# Мульти-клавиатура
 main_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🚀 О программе"), KeyboardButton(text="💳 Стоимость и скидки")],
+        [KeyboardButton(text="🐍 Python-разработчик"), KeyboardButton(text="🎨 Графический дизайнер")],
+        [KeyboardButton(text="🔍 Тестировщик (QA)"), KeyboardButton(text="💳 Скидки и оплата")],
         [KeyboardButton(text="📅 Когда старт?")]
     ],
     resize_keyboard=True
 )
 
-def ask_eva(user_id: int, question: str, user_name: str = "Студент") -> str:
-    """Генерация ответа Евы с контекстом и ПАМЯТЬЮ"""
-    
-    # Инициализируем историю для нового пользователя
+def ask_eva(user_id: int, question: str, user_name: str) -> str:
     if user_id not in user_history:
         user_history[user_id] = []
 
-    # ТВОЙ ПРОМПТ (без изменений)
+    # Твой промпт без изменений
     system_prompt = f"""
 Ты — Ева, эксперт курса Python-разработчик. Твоя задача — продавать смыслы курса, а не просто отвечать.
 
@@ -78,69 +88,38 @@ def ask_eva(user_id: int, question: str, user_name: str = "Студент") -> s
 КОНТЕКСТ ДЛЯ ОТВЕТА:
 {FULL_CONTEXT}
 """
-    # Собираем сообщения для Groq (System + История последних 6 сообщений + Вопрос)
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(user_history[user_id][-6:])
     messages.append({"role": "user", "content": question})
 
     try:
         chat_completion = groq_client.chat.completions.create(
-            messages=messages,
-            temperature=0.2,
-            model="llama-3.3-70b-versatile"
+            messages=messages, temperature=0.2, model="llama-3.3-70b-versatile"
         )
         answer = chat_completion.choices[0].message.content.strip()
-        
-        # Сохраняем в историю
         user_history[user_id].append({"role": "user", "content": question})
         user_history[user_id].append({"role": "assistant", "content": answer})
-        
         return answer
     except Exception as e:
-        logger.error(f"Ошибка Groq: {e}")
-        return "Сейчас я обновляю данные по курсу. Спросите, пожалуйста, через минуту."
+        logger.error(f"Ошибка: {e}")
+        return "Уточняю информацию по курсам, секунду..."
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    # Очищаем историю при рестарте
     user_history[message.from_user.id] = []
-    await message.answer(
-        "Привет! Я Ева. Жми на кнопки или задавай любой вопрос про курс Python-разработчик.",
-        reply_markup=main_kb
-    )
+    await message.answer("Привет! Я Ева. Выберите направление или задайте вопрос.", reply_markup=main_kb)
 
 @dp.message()
 async def handle_message(message: types.Message):
-    user_id = message.from_user.id
-    user_name = message.from_user.first_name
-    text = message.text
-    
-    if text == "🚀 О программе":
-        msg = "Курс включает уровни: Junior (основы), Middle (Django, API) и Advanced (архитектура). Хотите подробнее?"
-        # Добавляем в историю нажатие кнопки, чтобы Ева помнила контекст
-        if user_id not in user_history: user_history[user_id] = []
-        user_history[user_id].append({"role": "assistant", "content": msg})
-    elif text == "💳 Стоимость и скидки":
-        msg = "Полная стоимость — 120 000 руб. При оплате сразу — 108 000 руб. Можно вернуть 13% налогового вычета!"
-        if user_id not in user_history: user_history[user_id] = []
-        user_history[user_id].append({"role": "assistant", "content": msg})
-    elif text == "📅 Когда старт?":
-        msg = "Ближайший поток формируется. Оставьте заявку, и менеджер свяжется с вами для уточнения даты!"
-        if user_id not in user_history: user_history[user_id] = []
-        user_history[user_id].append({"role": "assistant", "content": msg})
-    else:
-        msg = ask_eva(user_id, text, user_name)
-    
+    msg = ask_eva(message.from_user.id, message.text, message.from_user.first_name)
     await message.answer(msg)
 
-# Flask для healthcheck
 flask_app = Flask(__name__)
 @flask_app.route('/health')
 def health(): return "OK", 200
 
 def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
