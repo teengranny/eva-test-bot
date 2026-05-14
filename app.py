@@ -10,12 +10,13 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
+# Настройка логирования для отслеживания ошибок
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Инициализация Groq с таймаутом
+# Инициализация Groq
 http_client = httpx.Client(timeout=30.0)
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"), http_client=http_client)
 bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
@@ -59,6 +60,7 @@ def ask_eva(user_id: int, question: str) -> str:
     if user_id not in user_history:
         user_history[user_id] = []
 
+    # ТВОЙ ПРОМПТ (БЕЗ ИЗМЕНЕНИЙ)
     system_prompt = f"""
 Ты — Ева, эксперт школы Нетология. Ты продаёшь ценность курсов и доверие к школе. 
 Ты умная, уверенная и располагающая к себе.
@@ -80,7 +82,7 @@ def ask_eva(user_id: int, question: str) -> str:
 """
 
     messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(user_history[user_id][-6:])  # последние 6 сообщений из истории
+    messages.extend(user_history[user_id][-6:])
     messages.append({"role": "user", "content": question})
 
     try:
@@ -92,9 +94,10 @@ def ask_eva(user_id: int, question: str) -> str:
         answer = chat_completion.choices[0].message.content.strip()
         user_history[user_id].append({"role": "user", "content": question})
         user_history[user_id].append({"role": "assistant", "content": answer})
-        # Ограничиваем историю 20 сообщениями (10 диалогов)
+        
         if len(user_history[user_id]) > 20:
             user_history[user_id] = user_history[user_id][-20:]
+            
         return answer
     except Exception as e:
         logger.error(f"Ошибка Groq: {e}")
@@ -102,9 +105,7 @@ def ask_eva(user_id: int, question: str) -> str:
 
 @dp.message(Command("start"))
 async def start_command(message: types.Message):
-    user_id = message.from_user.id
-    if user_id not in user_history:
-        user_history[user_id] = []
+    user_history[message.from_user.id] = []
     await message.answer(
         "Привет! Я Ева. Готова рассказать про наши курсы или саму школу. С чего начнем? ✨",
         reply_markup=main_kb
@@ -112,22 +113,32 @@ async def start_command(message: types.Message):
 
 @dp.message()
 async def handle_message(message: types.Message):
-    user_id = message.from_user.id
-    answer = ask_eva(user_id, message.text)
+    logger.info(f"Сообщение от {message.from_user.id}: {message.text}")
+    answer = ask_eva(message.from_user.id, message.text)
     await message.answer(answer, parse_mode="Markdown")
 
-# Flask для healthcheck (чтобы Render не убивал процесс)
+# Flask
 flask_app = Flask(__name__)
-
 @flask_app.route('/health')
-def health():
-    return "OK", 200
+def health(): return "OK", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
-if __name__ == "__main__":
+# Корректный запуск
+async def main():
+    # Запуск Flask в фоне
     threading.Thread(target=run_flask, daemon=True).start()
-    logger.info("Бот Ева запущен и работает...")
-    asyncio.run(dp.start_polling(bot))
+    
+    # Очистка очереди обновлений, чтобы бот не «висел»
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    logger.info("Ева запущена!")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Бот остановлен")
